@@ -1,4 +1,4 @@
-package com.stymsaw.game.ui.board
+package com.stymsaw.cc.game.ui.board
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -6,13 +6,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -21,37 +15,36 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.stymsaw.cc.game.presentation.TileUi
-import com.stymsaw.cc.game.ui.board.CandyFace
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlin.math.abs
 
 /**
  * Axis-locked drag (horizontal OR vertical), rubber-band clamped to one cell,
- * and a springy swap animation driven by [swapping].
+ * and a springy swap animation driven by [swapInfo].
  */
 @Composable
 fun TileCell(
     tile: TileUi,
-    isClearing: Boolean,
+    isClearing: Boolean, // currently unused here; your clear anim can live in the cell background
     swapInfo: Pair<Int, Int>?,
     boardWidth: Int,
     size: Dp = 48.dp,
     onSwap: (from: Int, to: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val scope = rememberCoroutineScope()
+
     // --- Drag state (user interaction) ---
     val cellPx = with(LocalDensity.current) { size.toPx() }
     val dragX = remember { Animatable(0f) }
     val dragY = remember { Animatable(0f) }
-    var lockedAxis by remember { mutableStateOf<Axis>(Axis.None) }
+    var lockedAxis by remember { mutableStateOf(Axis.None) }
 
     // --- Swap animation (programmatic) ---
     // These offsets animate when ViewModel sets swapInfo = a to b
     val swapX = remember { Animatable(0f) }
     val swapY = remember { Animatable(0f) }
-
-    val scope = rememberCoroutineScope()
-
 
     // Drive the swap animation from VM state
     LaunchedEffect(swapInfo) {
@@ -61,10 +54,8 @@ fun TileCell(
         } else {
             val (a, b) = swapInfo
             if (tile.index == a || tile.index == b) {
-                val ax = a % boardWidth;
-                val ay = a / boardWidth
-                val bx = b % boardWidth;
-                val by = b / boardWidth
+                val ax = a % boardWidth; val ay = a / boardWidth
+                val bx = b % boardWidth; val by = b / boardWidth
                 val dx = (bx - ax).coerceIn(-1, 1)
                 val dy = (by - ay).coerceIn(-1, 1)
                 swapX.snapTo(0f); swapY.snapTo(0f)
@@ -80,6 +71,7 @@ fun TileCell(
 
     // Axis-locked drag gestures
     val thresholdPx = with(LocalDensity.current) { 14.dp.toPx() } // small nudge to lock axis
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
@@ -94,16 +86,15 @@ fun TileCell(
                                 dragX.value < -0.5f * cellPx -> tile.index - 1
                                 else -> null
                             }
-
                             Axis.Vertical -> when {
                                 dragY.value > 0.5f * cellPx -> tile.index + boardWidth
                                 dragY.value < -0.5f * cellPx -> tile.index - boardWidth
                                 else -> null
                             }
-
                             Axis.None -> null
                         }
                         toIndex?.let { onSwap(tile.index, it) }
+
                         // Rubber-band back
                         scope.launch { dragX.animateTo(0f, spring(stiffness = Spring.StiffnessMedium)) }
                         scope.launch { dragY.animateTo(0f, spring(stiffness = Spring.StiffnessMedium)) }
@@ -124,19 +115,14 @@ fun TileCell(
                         Axis.Horizontal -> {
                             val next = (dragX.value + dx).coerceIn(-cellPx, cellPx)
                             scope.launch { dragX.snapTo(next) }
-                            // keep vertical at 0 to avoid diagonal
                             if (dragY.value != 0f) scope.launch { dragY.snapTo(0f) }
                         }
-
                         Axis.Vertical -> {
                             val next = (dragY.value + dy).coerceIn(-cellPx, cellPx)
                             scope.launch { dragY.snapTo(next) }
                             if (dragX.value != 0f) scope.launch { dragX.snapTo(0f) }
                         }
-
-                        Axis.None -> {
-                            // do nothing until locked
-                        }
+                        Axis.None -> Unit
                     }
                 }
             }
@@ -144,8 +130,10 @@ fun TileCell(
                 // Combine programmatic swap offset + user drag offset
                 translationX = swapX.value + dragX.value
                 translationY = swapY.value + dragY.value
-                // Optional: fade/scale handled elsewhere if you already do it
-                // Leave alpha/scale alone here to avoid fighting clear animation
+
+                // Subtle “picked up” feel during drag
+                val s = if (lockedAxis != Axis.None) 1.06f else 1f
+                scaleX = s; scaleY = s
             }
     ) {
         // Draw the candy face/content
